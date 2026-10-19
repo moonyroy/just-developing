@@ -1,0 +1,5 @@
+//@version=5
+strategy("Just Developing - Week 02", overlay=true)
+
+// Week 02 - placeholder
+// TODO: add CHoCH & BOS logic here

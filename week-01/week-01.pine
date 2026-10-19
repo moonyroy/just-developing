@@ -1,0 +1,5 @@
+//@version=5
+strategy("Just Developing - Week 01", overlay=true)
+
+// Week 01 - placeholder
+// TODO: add ZigZag logic here

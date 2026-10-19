@@ -1,0 +1,5 @@
+//@version=5
+strategy("Just Developing - Week 04", overlay=true)
+
+// Week 04 - placeholder
+// TODO: add risk management here

@@ -1,0 +1,5 @@
+//@version=5
+strategy("Just Developing - Week 03", overlay=true)
+
+// Week 03 - placeholder
+// TODO: add entry logic here
