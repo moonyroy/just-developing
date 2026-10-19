@@ -1,111 +1,100 @@
 # Week 02 — Multi-Timeframe ZigZag
 
-> Extending the Week 01 structure engine: same breakout-based ZigZag on the chart timeframe, plus an optional second ZigZag built from a higher timeframe.
+> A breakout-based ZigZag structure running on two timeframes: the chart timeframe plus an optional higher timeframe.
 
 **File:** [`week-02.pine`](week-02.pine) — Pine Script v6, `indicator` with `overlay = true`.
 
-## What Changed vs Week 01
+## What It Does
 
-| Area | Week 01 | Week 02 |
-|------|---------|---------|
-| Chart-TF ZigZag | Always drawn, unbounded lines | Same logic, but with show toggle + 250-line garbage collection |
-| Higher-TF ZigZag | — | New: manually aggregated HTF candles with their own independent ZigZag (time-based lines) |
-| Line management | No cleanup | Two capped arrays (`250` chart lines + `250` HTF lines), oldest lines auto-deleted |
-| Safety checks | — | Errors on non-time-based charts (Renko/Kagi/etc.) and when HTF ≤ chart TF |
+This script maps market structure by tracking swing ranges and drawing connected line segments between confirmed pivots — on two independent engines:
 
-No CHoCH / BOS labels yet — this week is still about getting **structure on two timeframes** right.
+1. **Chart-timeframe ZigZag** — reacts to every chart bar.
+2. **Higher-timeframe ZigZag** — reacts only to closed higher-timeframe candles, drawn at their true time positions.
 
-## Part 1 — Chart-Timeframe ZigZag (Refined)
+Both engines share the same breakout logic but keep fully separate state.
 
-Same state machine as Week 01 (`""` → `"top"` / `"bot"`), same breakout logic:
+## Core Mechanism
+
+### 1. Breakout Detection
+
+Each engine tracks an active range (`HI` / `LO`). Every new price unit (chart bar or closed HTF candle) is tested:
 
 ```pine
 break_high = high > HI
 break_low  = low  < LO
 ```
 
-What is new:
+Four outcomes:
 
-- **Toggle:** `show chart timeframe zigzag` — drawing can be hidden while logic still runs.
-- **Line cap:** every new segment is pushed to `chartZigzagLines`; beyond 250, the oldest line is deleted. Prevents the `max_lines_count = 500` overflow on long histories.
-- `update_endpoint()` / `new_segment()` now no-op cleanly when display is off or `cur_line` is `na`.
+- **Only high breaks** — range extends upward, pivot moves to the new high.
+- **Only low breaks** — range extends downward, pivot moves to the new low.
+- **Both break** — an expansion unit; resolved by distance (chart engine) or by extreme time order (HTF engine).
+- **Neither breaks** — inside unit; flags a pause, optionally resets the engine.
 
-The `mode` input (`normal` / `reset on outside bar`) behaves exactly like Week 01.
+### 2. State Machine
 
-## Part 2 — Second (Higher-Timeframe) ZigZag
+Each engine lives in one of three states:
 
-### Idea
+| State | Meaning |
+|-------|---------|
+| `""` (empty) | Cold start — collecting the first range |
+| `"top"` | Last pivot is a swing high |
+| `"bot"` | Last pivot is a swing low |
 
-Build synthetic HTF candles bar-by-bar, then run the **same** breakout state machine on *closed* HTF candles only. Draw the result with `xloc = xloc.bar_time` so HTF pivots land at the correct time on the chart.
+Extensions update the live line endpoint; reversals close the current leg and open a new one.
+
+### 3. Line Drawing & Cleanup
+
+- New legs via `line.new(...)`, live legs extended via `line.set_x2 / set_y2`.
+- Each engine keeps a capped array of **250 lines** — oldest lines are auto-deleted so long histories never overflow the line limit.
+
+## Chart-Timeframe Engine
+
+- Runs on every chart bar using `high` / `low`.
+- `mode` input (`normal` / `reset on outside bar`): in reset mode, an inside bar restarts the whole structure from the current bar.
+- `show chart timeframe zigzag` toggles visibility without stopping the logic.
+
+## Higher-Timeframe Engine
+
+### Building HTF Candles Manually
+
+The script accumulates chart bars into synthetic HTF candles:
+
+1. `timeframe.change()` detects when a new HTF period starts.
+2. The finished accumulator (open/high/low **plus the time each extreme was made**) freezes into `closed*` variables.
+3. Only closed HTF candles feed the engine — the HTF structure never repaints mid-period.
+
+### Resolving HTF Expansion Candles
+
+When a closed HTF candle breaks both sides, the winner is decided by **which extreme happened first** (using stored extreme times). If both times match, the closer distance to the current pivot wins. A helper draws the path through the first extreme on the way to the second, so lines stay chronologically correct.
+
+HTF lines use `xloc.bar_time`, placing pivots at their true time on the chart.
 
 ### Inputs
 
-| Input | Options / Default | Effect |
-|-------|-------------------|--------|
-| `second zigzag timeframe` | `No second zigzag`, `5`, `15`, `30`, `45`, `60`, `120`, `240`, `1D`, `1W`, `1M` | Off by default; when set, must be **higher** than the chart TF |
-| `second zigzag mode` | `normal` / `reset on outside bar` | Same reset semantics, applied to the HTF engine |
-| `show second zigzag` | `true` | Visibility toggle for HTF lines |
-| `second zigzag color` | red (`#f23645`) | Line color for HTF legs |
-| `second zigzag width` | `1` (1–5) | Line width for HTF legs |
+| Input | Effect |
+|-------|--------|
+| `second zigzag timeframe` | Off by default; when set, must be higher than the chart timeframe |
+| `second zigzag mode` | Same normal/reset semantics, applied to the HTF engine |
+| `show second zigzag` | Visibility toggle for HTF lines |
+| `second zigzag color` / `width` | Visual style of HTF legs |
 
-### How Aggregation Works
+### Safety Checks
 
-On every chart bar:
+- Fails fast with a clear error on non-time-based charts (Renko, Kagi, LineBreak, Point&Figure, Range).
+- Fails fast if the selected higher timeframe is not above the chart timeframe.
 
-1. `timeframe.change(secondZigzagTf)` detects a new HTF period.
-2. On a new period, the previous accumulator (`aggOpen/High/Low` + high/low **times**) is frozen into `closedOpen/High/Low` (+ `closedHighTime/LowTime`).
-3. The accumulator restarts from the current bar and tracks the running high/low **and the time each extreme was made**.
-4. Only when a period closes does the HTF engine evaluate it — so the HTF ZigZag never repaints within a closed candle.
+## Current Scope
 
-### HTF Engine Logic
-
-Mirrors the chart engine, but with time-based coordinates:
-
-- `htfState`: `""` / `"top"` / `"bot"`, with `htfHi` / `htfLo` as the active range.
-- Breakout cases: `htfOnlyHigh`, `htfOnlyLow`, `htfBothBroken`, `htfNeitherBroken` — computed from `closedHigh` / `closedLow`.
-- **Tie-break on both-broken HTF candles** uses extreme *times*: whichever extreme came first wins; if both times are equal, the closer distance to the current pivot wins.
-- `htfReversal()` helper handles the two-segment resolution (extend-then-reverse) while keeping arrival order correct — the line always passes through the first extreme on its way to the second.
-- `htfSegment()` / `htfEndpoint()` draw with `xloc.bar_time` and enforce the same 250-line cap via `htfZigzagLines`.
-
-### Guards
-
-```pine
-// Non-time-based charts can't aggregate by timeframe
-if chart.is_renko or chart.is_kagi or ... → runtime.error(...)
-// HTF must be strictly above chart TF
-if timeframe.in_seconds(secondZigzagTf) <= timeframe.in_seconds() → runtime.error(...)
-```
-
-These fail fast with a clear message instead of drawing garbage.
-
-## Tracked Variables (New in Week 02)
-
-- `chartZigzagLines` / `chartZigzagLineLimit` — chart-leg garbage collection
-- `aggOpen/High/Low`, `aggHighTime/LowTime` — live HTF candle under construction
-- `closedOpen/High/Low`, `closedHighTime/LowTime` — last closed HTF candle fed to the engine
-- `htfState`, `htfHi/Lo`, `htfCurPivotTime/Price`, `htfCurLine` — HTF mirror of the Week 01 state
-- `htfSeed*` — cold-start reference (first closed HTF candle)
-- `htfZigzagLines` / `htfZigzagLineLimit` — HTF-leg garbage collection
-
-## Current Limitations
-
-- Still structure-only: no CHoCH / BOS, no entries, no risk management.
-- HTF legs update only on HTF close (by design — no intra-period HTF signal).
-- Extreme *times* inside an HTF candle come from chart-bar `time`, so very low chart TFs give more precise HTF pivot placement than high ones.
-- Both engines share the same breakout sensitivity — no per-timeframe deviation/length filter yet.
-
-## Next (Week 03)
-
-- Derive **BOS** (break of last pivot) and **CHoCH** (first break against trend) from pivot pairs — likely on the chart engine first, then optionally confirmed by the HTF engine.
-- Consider a swing-strength filter so tiny wicks don't flip state on either timeframe.
+Structure mapping only — no trend labels, no entries, no stop-loss or backtest logic. HTF legs update on HTF close by design.
 
 ## How to Use
 
 1. Open TradingView → Pine Editor.
 2. Paste the contents of `week-02.pine`.
 3. Click **Add to chart**.
-4. Set `second zigzag timeframe` to e.g. `60` while on a `15` chart to see both structures overlaid.
+4. Set `second zigzag timeframe` (e.g. `60` on a `15` chart) to overlay both structures.
 
 ---
 
-*Week 02 goal: one structure engine, two timeframes — trend context before signals.*
+*Week 02 goal: map structure on two timeframes before adding any signals.*
