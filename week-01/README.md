@@ -1,101 +1,26 @@
-# Week 01 — Custom ZigZag Foundation
+# Week 01 — my own zigzag
 
-> First building block of the strategy: a lightweight, breakout-based ZigZag that maps swing structure with lines.
+Didn't like the built-in zigzag so I wrote my own. Nothing fancy — it just watches a range and draws lines when price breaks out of it. This is the base everything else will sit on.
 
-**File:** [`week-01.pine`](week-01.pine) — Pine Script v6, `indicator` with `overlay = true`.
+File is `week-01.pine` (Pine v6, overlay indicator).
 
-## What It Does
+## The idea
 
-Instead of using TradingView's built-in ZigZag, this script builds its own swing structure from scratch:
+Keep two numbers, `HI` and `LO`. Every bar gets compared against them:
 
-- Tracks the current swing range (`HI` / `LO`).
-- Detects when price **breaks** that range.
-- Draws connected **line segments** between confirmed pivots.
-- Maintains a two-pivot memory: previous pivot + current pivot.
+- takes out the top only → leg pushes higher
+- takes out the bottom only → leg pushes lower
+- takes out both → big expansion bar, pick a winner by distance
+- takes out neither → inside bar, sit tight
 
-The result is a clean, repaint-aware structure backbone that later weeks can use for CHoCH / BOS detection.
+There's a tiny state variable holding where we are: no direction yet, last pivot was a top, or last pivot was a bottom. If price keeps pushing the same way I just stretch the live line (`line.set_x2/y2`), if it flips I close that leg and start a new line. I also keep the previous pivot around because week 02 will need it for CHoCH/BOS.
 
-## How It Works
+The annoying case is a single bar breaking both sides. I measure distance from the current pivot (or from open on the very first swing) and let the closer side win, then draw two segments so the line stays continuous through the bar instead of teleporting.
 
-### 1. State Machine
+## One input
 
-The script lives in one of three states (`stn`):
+`mode` — `normal` is the default and does what I described. `reset on outside bar` restarts the whole thing from the current bar after an inside bar. Added it because chop kept leaving the structure stuck in weird states, and sometimes starting fresh is just cleaner.
 
-| State | Meaning |
-|-------|---------|
-| `""` (empty) | Not initialized yet — waiting for the first swing |
-| `"top"` | Last pivot is a swing **high** — looking for extension or reversal down |
-| `"bot"` | Last pivot is a swing **low** — looking for extension or reversal up |
+## Where it stands
 
-### 2. Breakout Detection
-
-Every bar compares against the tracked range:
-
-```pine
-break_high = high > HI
-break_low  = low  < LO
-```
-
-This gives four cases:
-
-- `only_high` — pushes above the range → extends / flips to `"top"`
-- `only_low` — pushes below the range → extends / flips to `"bot"`
-- `both_broken` — outside bar breaking both sides → needs tie-break logic
-- `neither_broken` — inside bar → marks a potential outside-bar pause
-
-### 3. Resolving Both-Sides-Broken Bars
-
-When a single bar breaks both `HI` and `LO`, the script picks the closer side by distance from the pivot (or open on the very first swing):
-
-- Smallest distance wins and becomes the new leg.
-- Draws **two segments**: one into the bar, one across the bar's range.
-- This keeps the structure continuous even on volatile expansion bars.
-
-### 4. Line Drawing
-
-Two helpers keep drawing clean:
-
-- `new_segment(x1, y1, x2, y2)` → starts a new `line.new(...)`
-- `update_endpoint(x, y)` → extends the live leg with `line.set_x2 / set_y2`
-
-So trends **extend** the current line, and reversals **close** it and start a new one.
-
-## Input
-
-| Input | Options | Default | Effect |
-|-------|---------|---------|--------|
-| `mode` | `normal` / `reset on outside bar` | `normal` | In `reset` mode, an inside bar (`neither_broken`) resets the whole structure and restarts from the current bar |
-
-`max_lines_count = 500` allows long histories without deleting old legs.
-
-## Tracked Variables
-
-- `HI`, `LO` — active swing boundaries
-- `cur_pivot_bar / cur_pivot_price` — live pivot being extended
-- `prev_pivot_bar / prev_pivot_price` — last confirmed pivot
-- `init_*` — first-bar reference for cold start
-- `outsidebar` — flags an inside bar (used only in `reset` mode)
-- `cur_line` — handle of the line currently being drawn
-
-## Current Limitations
-
-- No CHoCH / BOS labels yet — this week is structure only.
-- No entry, stop-loss, or backtest logic — it's an `indicator`, not a `strategy`.
-- Confirmation is breakout-based, so the live leg can still extend (mild repaint by design).
-- No length / deviation filter yet — every range break counts as structure.
-
-## Next (Week 02)
-
-- Use `prev_pivot_*` + `cur_pivot_*` to detect **BOS** (break of last structure point) and **CHoCH** (first break against the trend).
-- Optionally add swing-strength filtering so small wicks don't flip state.
-
-## How to Use
-
-1. Open TradingView → Pine Editor.
-2. Paste the contents of `week-01.pine`.
-3. Click **Add to chart**.
-4. Try both `mode` settings on a volatile symbol to see how outside bars change the structure.
-
----
-
-*Week 01 goal: get the structure right first — signals come later.*
+Just structure, no signals. The live leg can still extend so it repaints a little by design, and right now every tiny range break counts — no deviation or length filter yet. Fine for week one, I'll tighten it up once CHoCH/BOS go in.
