@@ -1,100 +1,47 @@
-# Week 02 — Multi-Timeframe ZigZag
+# Week 02 — second zigzag on a higher timeframe
 
-> A breakout-based ZigZag structure running on two timeframes: the chart timeframe plus an optional higher timeframe.
+This week I added a second zigzag that runs on a higher timeframe next to the chart one. Same idea, separate state — I wanted to see the bigger structure while still working on the chart timeframe.
 
-**File:** [`week-02.pine`](week-02.pine) — Pine Script v6, `indicator` with `overlay = true`.
+File is `week-02.pine` (Pine v6, overlay indicator).
 
-## What It Does
+## How it works
 
-This script maps market structure by tracking swing ranges and drawing connected line segments between confirmed pivots — on two independent engines:
+The whole thing is just range breakouts. Each engine keeps a `HI` and `LO`, and every new unit of price gets checked against them:
 
-1. **Chart-timeframe ZigZag** — reacts to every chart bar.
-2. **Higher-timeframe ZigZag** — reacts only to closed higher-timeframe candles, drawn at their true time positions.
+- breaks only above → pivot moves up, leg extends
+- breaks only below → pivot moves down, leg extends
+- breaks both sides → expansion bar, needs a tie-break
+- breaks neither → inside bar, nothing happens (or resets, see below)
 
-Both engines share the same breakout logic but keep fully separate state.
+State is dead simple — either we don't have a direction yet (`""`), the last pivot is a top (`"top"`), or it's a bottom (`"bot"`). Extending just moves the live line endpoint, reversing closes it and starts a fresh line.
 
-## Core Mechanism
+I cap both line arrays at 250 and delete the oldest ones, otherwise long histories blow up the line limit.
 
-### 1. Breakout Detection
+## Chart zigzag
 
-Each engine tracks an active range (`HI` / `LO`). Every new price unit (chart bar or closed HTF candle) is tested:
+Runs on every bar with `high` / `low`. Two inputs worth knowing:
 
-```pine
-break_high = high > HI
-break_low  = low  < LO
-```
+- `mode` — `normal` behaves as expected. `reset on outside bar` restarts everything from the current bar after an inside bar, which I use when chop keeps messing up the structure.
+- `show chart timeframe zigzag` — just hides the drawing, logic keeps running.
 
-Four outcomes:
+## Higher timeframe zigzag
 
-- **Only high breaks** — range extends upward, pivot moves to the new high.
-- **Only low breaks** — range extends downward, pivot moves to the new low.
-- **Both break** — an expansion unit; resolved by distance (chart engine) or by extreme time order (HTF engine).
-- **Neither breaks** — inside unit; flags a pause, optionally resets the engine.
+This was the actual work this week. TradingView doesn't give you past HTF bars with their extreme times inside `request.security`, so I build the HTF candles myself:
 
-### 2. State Machine
+1. `timeframe.change()` tells me a new HTF period started.
+2. I freeze the previous accumulator (open/high/low + when the high and low actually printed) into `closed*` vars.
+3. The engine only ever looks at closed candles, so the HTF legs don't repaint mid-period.
 
-Each engine lives in one of three states:
+The tricky part is an HTF candle that takes out both sides. For those I check which extreme printed first and route the line through it — if both printed on the same bar I fall back to whichever is closer to the current pivot. Drawn with `xloc.bar_time` so pivots sit where they actually happened.
 
-| State | Meaning |
-|-------|---------|
-| `""` (empty) | Cold start — collecting the first range |
-| `"top"` | Last pivot is a swing high |
-| `"bot"` | Last pivot is a swing low |
+Inputs:
 
-Extensions update the live line endpoint; reversals close the current leg and open a new one.
+- `second zigzag timeframe` — off by default, and it has to be above the chart TF or the script throws.
+- `second zigzag mode` — same normal/reset choice, just for the HTF side.
+- `show second zigzag`, color, width — cosmetic stuff.
 
-### 3. Line Drawing & Cleanup
+Also errors out on Renko/Kagi/Range etc. since timeframe aggregation makes no sense there.
 
-- New legs via `line.new(...)`, live legs extended via `line.set_x2 / set_y2`.
-- Each engine keeps a capped array of **250 lines** — oldest lines are auto-deleted so long histories never overflow the line limit.
+## Honest state of things
 
-## Chart-Timeframe Engine
-
-- Runs on every chart bar using `high` / `low`.
-- `mode` input (`normal` / `reset on outside bar`): in reset mode, an inside bar restarts the whole structure from the current bar.
-- `show chart timeframe zigzag` toggles visibility without stopping the logic.
-
-## Higher-Timeframe Engine
-
-### Building HTF Candles Manually
-
-The script accumulates chart bars into synthetic HTF candles:
-
-1. `timeframe.change()` detects when a new HTF period starts.
-2. The finished accumulator (open/high/low **plus the time each extreme was made**) freezes into `closed*` variables.
-3. Only closed HTF candles feed the engine — the HTF structure never repaints mid-period.
-
-### Resolving HTF Expansion Candles
-
-When a closed HTF candle breaks both sides, the winner is decided by **which extreme happened first** (using stored extreme times). If both times match, the closer distance to the current pivot wins. A helper draws the path through the first extreme on the way to the second, so lines stay chronologically correct.
-
-HTF lines use `xloc.bar_time`, placing pivots at their true time on the chart.
-
-### Inputs
-
-| Input | Effect |
-|-------|--------|
-| `second zigzag timeframe` | Off by default; when set, must be higher than the chart timeframe |
-| `second zigzag mode` | Same normal/reset semantics, applied to the HTF engine |
-| `show second zigzag` | Visibility toggle for HTF lines |
-| `second zigzag color` / `width` | Visual style of HTF legs |
-
-### Safety Checks
-
-- Fails fast with a clear error on non-time-based charts (Renko, Kagi, LineBreak, Point&Figure, Range).
-- Fails fast if the selected higher timeframe is not above the chart timeframe.
-
-## Current Scope
-
-Structure mapping only — no trend labels, no entries, no stop-loss or backtest logic. HTF legs update on HTF close by design.
-
-## How to Use
-
-1. Open TradingView → Pine Editor.
-2. Paste the contents of `week-02.pine`.
-3. Click **Add to chart**.
-4. Set `second zigzag timeframe` (e.g. `60` on a `15` chart) to overlay both structures.
-
----
-
-*Week 02 goal: map structure on two timeframes before adding any signals.*
+No signals yet, no CHoCH/BOS, no backtest — still just lines. The HTF side only updates on HTF close which is intentional, and pivot timing inside an HTF candle is only as precise as the chart TF you're on. Good enough for structure for now, I'll deal with entries next.
