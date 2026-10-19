@@ -1,5 +1,229 @@
-//@version=5
-strategy("Just Developing - Week 03", overlay=true)
+//@version = 6
+indicator("🌧️🌈", overlay = true, max_lines_count = 500, max_boxes_count = 500)
 
-// Week 03 - placeholder
-// TODO: add entry logic here
+const int max_hist = 900
+
+bool new_group = timeframe.change("15")
+
+color bull_color = color.new(color.green, 85)
+color bear_color = color.new(color.red, 85)
+
+var float group_open = na
+var float group_high = na
+var float group_low = na
+var int group_high_bar = na
+var int group_low_bar = na
+var box group_box = na
+
+var float prev_high = na
+var float prev_low = na
+var bool broke_prev_high = false
+var bool broke_prev_low = false
+var string first_break = ""
+var int break_high_bar = na
+var int break_low_bar = na
+var float break_high_price = na
+var float break_low_price = na
+
+var float snap_high = na
+var int snap_high_bar = na
+var float snap_low = na
+var int snap_low_bar = na
+
+var float init_high = na
+var float init_low = na
+var int init_high_bar = na
+var int init_low_bar = na
+
+var string start_state = ""
+var int start_prev_bar = na
+var float start_prev_price = na
+var int start_cur_bar = na
+var float start_cur_price = na
+
+var line carry_line = na
+var line seg_one = na
+var line seg_two = na
+
+var array<line> hist_lines = array.new<line>()
+
+apply_segment(line ln, int x1, float y1, int x2, float y2) =>
+    line result = ln
+    if na(result)
+        result := line.new(x1 = x1, y1 = y1, x2 = x2, y2 = y2)
+    else
+        line.set_xy1(result, x1, y1)
+        line.set_xy2(result, x2, y2)
+    result
+
+retire_line(line ln) =>
+    if not na(ln)
+        array.push(hist_lines, ln)
+    true
+
+build_geometry(string prev_state, int prev_bar, float prev_price, int cur_bar, float cur_price,
+               int init_high_x, float init_high_y, int init_low_x, float init_low_y,
+               bool broke_high, bool broke_low, string first_side,
+               int high_x, float high_y, int low_x, float low_y) =>
+    bool both = broke_high and broke_low
+    bool side_high = both ? (first_side == "high") : broke_high
+    bool use_carry = (prev_state == "top" and side_high) or (prev_state == "bot" and not side_high)
+    int start_x = na
+    float start_y = na
+    if use_carry
+        start_x := prev_bar
+        start_y := prev_price
+    else if prev_state == ""
+        start_x := side_high ? init_low_x : init_high_x
+        start_y := side_high ? init_low_y : init_high_y
+    else
+        start_x := cur_bar
+        start_y := cur_price
+    int first_x = side_high ? high_x : low_x
+    float first_y = side_high ? high_y : low_y
+    int other_x = side_high ? low_x : high_x
+    float other_y = side_high ? low_y : high_y
+    [use_carry, both, start_x, start_y, first_x, first_y, other_x, other_y]
+
+next_state_of(string prev_state, bool broke_high, bool broke_low, string first_side) =>
+    bool both = broke_high and broke_low
+    bool side_high = both ? (first_side == "high") : broke_high
+    both ? (side_high ? "bot" : "top") : (side_high ? "top" : "bot")
+
+prune_history() =>
+    while array.size(hist_lines) > max_hist
+        line.delete(array.shift(hist_lines))
+    0
+draw_geometry(line cur_carry, line cur_one, line cur_two,
+              bool use_carry, bool both,
+              int start_x, float start_y, int first_x, float first_y, int other_x, float other_y) =>
+    line out_carry = cur_carry
+    line out_one = cur_one
+    line out_two = cur_two
+    if use_carry
+        out_carry := apply_segment(out_carry, start_x, start_y, first_x, first_y)
+    else
+        out_one := apply_segment(out_one, start_x, start_y, first_x, first_y)
+    if both
+        out_two := apply_segment(out_two, first_x, first_y, other_x, other_y)
+    [out_carry, out_one, out_two]
+
+if new_group
+    if broke_prev_high or broke_prev_low
+        [fin_use_carry, fin_both, fin_start_x, fin_start_y, fin_first_x, fin_first_y, fin_other_x, fin_other_y] = build_geometry(start_state, start_prev_bar, start_prev_price, start_cur_bar, start_cur_price, init_high_bar, init_high, init_low_bar, init_low, broke_prev_high, broke_prev_low, first_break, break_high_bar, break_high_price, break_low_bar, break_low_price)
+        [fin_carry, fin_one, fin_two] = draw_geometry(carry_line, seg_one, seg_two, fin_use_carry, fin_both, fin_start_x, fin_start_y, fin_first_x, fin_first_y, fin_other_x, fin_other_y)
+        carry_line := fin_carry
+        seg_one := fin_one
+        seg_two := fin_two
+        start_prev_bar := fin_both ? fin_first_x : fin_start_x
+        start_prev_price := fin_both ? fin_first_y : fin_start_y
+        start_cur_bar := fin_both ? fin_other_x : fin_first_x
+        start_cur_price := fin_both ? fin_other_y : fin_first_y
+        start_state := next_state_of(start_state, broke_prev_high, broke_prev_low, first_break)
+        if fin_both
+            retire_line(carry_line)
+            if not fin_use_carry
+                retire_line(seg_one)
+            carry_line := seg_two
+        else
+            if not fin_use_carry
+                retire_line(carry_line)
+                carry_line := seg_one
+        seg_one := na
+        seg_two := na
+        prune_history()
+
+    if not na(group_high)
+        if na(init_high)
+            init_high := group_high
+            init_low := group_low
+            init_high_bar := group_high_bar
+            init_low_bar := group_low_bar
+        if na(prev_high) or broke_prev_high or broke_prev_low
+            prev_high := group_high
+            prev_low := group_low
+    broke_prev_high := false
+    broke_prev_low := false
+    first_break := ""
+    break_high_bar := na
+    break_low_bar := na
+    break_high_price := na
+    break_low_price := na
+    snap_high := na
+    snap_high_bar := na
+    snap_low := na
+    snap_low_bar := na
+    group_open := open
+    group_high := high
+    group_low := low
+    group_high_bar := bar_index
+    group_low_bar := bar_index
+    group_box := box.new(left = bar_index, top = high, right = bar_index, bottom = low,
+         border_color = na, border_width = 0,
+         bgcolor = close >= group_open ? bull_color : bear_color)
+else
+    if high > group_high
+        group_high := high
+        group_high_bar := bar_index
+    if low < group_low
+        group_low := low
+        group_low_bar := bar_index
+    box.set_right(group_box, bar_index)
+    box.set_top(group_box, group_high)
+    box.set_bottom(group_box, group_low)
+    box.set_bgcolor(group_box, close >= group_open ? bull_color : bear_color)
+
+if not na(prev_high)
+    bool break_high = high > prev_high
+    bool break_low = low < prev_low
+    if break_high
+        broke_prev_high := true
+        if na(break_high_bar)
+            break_high_bar := bar_index
+            break_high_price := high
+            snap_low := group_low
+            snap_low_bar := group_low_bar
+    if break_low
+        broke_prev_low := true
+        if na(break_low_bar)
+            break_low_bar := bar_index
+            break_low_price := low
+            snap_high := group_high
+            snap_high_bar := group_high_bar
+    if first_break == "" and (break_high or break_low)
+        if break_high and break_low
+            float dist_high = math.abs(high - prev_high)
+            float dist_low = math.abs(low - prev_low)
+            first_break := dist_high <= dist_low ? "high" : "low"
+        else if break_high
+            first_break := "high"
+        else
+            first_break := "low"
+
+if broke_prev_high or broke_prev_low
+    float prov_high = na
+    int prov_high_bar = na
+    float prov_low = na
+    int prov_low_bar = na
+    if broke_prev_high and broke_prev_low
+        if first_break == "high"
+            prov_high := snap_high
+            prov_high_bar := snap_high_bar
+            prov_low := group_low
+            prov_low_bar := group_low_bar
+        else
+            prov_low := snap_low
+            prov_low_bar := snap_low_bar
+            prov_high := group_high
+            prov_high_bar := group_high_bar
+    else if broke_prev_high
+        prov_high := group_high
+        prov_high_bar := group_high_bar
+    else
+        prov_low := group_low
+        prov_low_bar := group_low_bar
+    [prv_use_carry, prv_both, prv_start_x, prv_start_y, prv_first_x, prv_first_y, prv_other_x, prv_other_y] = build_geometry(start_state, start_prev_bar, start_prev_price, start_cur_bar, start_cur_price, init_high_bar, init_high, init_low_bar, init_low, broke_prev_high, broke_prev_low, first_break, prov_high_bar, prov_high, prov_low_bar, prov_low)
+    [prv_carry, prv_one, prv_two] = draw_geometry(carry_line, seg_one, seg_two, prv_use_carry, prv_both, prv_start_x, prv_start_y, prv_first_x, prv_first_y, prv_other_x, prv_other_y)
+    carry_line := prv_carry
+    seg_one := prv_one
+    seg_two := prv_two

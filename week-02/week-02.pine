@@ -1,5 +1,421 @@
-//@version=5
-strategy("Just Developing - Week 02", overlay=true)
+//@version = 6
+indicator("🧁", overlay = true, max_lines_count = 500)
 
-// Week 02 - placeholder
-// TODO: add CHoCH & BOS logic here
+mode_input = input.string("normal", "mode", options=["normal", "reset on outside bar"])
+showChartTfZigzag = input.bool(true, "show chart timeframe zigzag")
+secondZigzagTf = input.string("No second zigzag", "second zigzag timeframe", options = ["No second zigzag", "5", "15", "30", "45", "60", "120", "240", "1D", "1W", "1M"])
+secondZigzagOn = secondZigzagTf != "No second zigzag"
+secondZigzagMode = input.string("normal", "second zigzag mode", options=["normal", "reset on outside bar"])
+
+var string stn = ""
+var float HI = na , var float LO = na
+var bool outsidebar = false , var int init_bar = na
+var float init_open = na , var float init_high = na
+var float init_low = na , var int prev_pivot_bar = na
+var float prev_pivot_price = na , var int cur_pivot_bar = na
+var float cur_pivot_price = na , var line cur_line = na
+break_high = high > HI , break_low = low < LO
+
+
+only_high = break_high and not break_low
+only_low = break_low and not break_high
+both_broken = break_high and break_low
+neither_broken = not break_high and not break_low
+
+var array<line> chartZigzagLines = array.new<line>()
+const int chartZigzagLineLimit = 250
+
+//--------------------------
+update_endpoint(int x, float y) =>
+    if showChartTfZigzag and not na(cur_line)
+        line.set_x2(cur_line, x)
+        line.set_y2(cur_line, y)
+
+new_segment(int x1, float y1, int x2, float y2) =>
+    line result = na
+    if showChartTfZigzag
+        result := line.new(x1=x1, y1=y1, x2=x2, y2=y2)
+        chartZigzagLines.push(result)
+        if chartZigzagLines.size() > chartZigzagLineLimit
+            line.delete(chartZigzagLines.shift())
+    result
+
+//---------------------------
+if stn == ""
+    if na(HI)
+        HI := high
+        LO := low
+        init_bar := bar_index
+        init_open := open
+        init_high := high
+        init_low := low
+    else
+        if only_high
+            cur_line := new_segment(init_bar, init_low, bar_index, high)
+            prev_pivot_bar := init_bar
+            prev_pivot_price := init_low
+            cur_pivot_bar := bar_index
+            cur_pivot_price := high
+            stn := "top"
+            HI := high
+            LO := low
+            outsidebar := false
+        else if only_low
+            cur_line := new_segment(init_bar, init_high, bar_index, low)
+            prev_pivot_bar := init_bar
+            prev_pivot_price := init_high
+            cur_pivot_bar := bar_index
+            cur_pivot_price := low
+            stn := "bot"
+            HI := high
+            LO := low
+            outsidebar := false
+        else if both_broken
+            dist_high = math.abs(init_open - high)
+            dist_low = math.abs(init_open - low)
+            if dist_high <= dist_low
+                new_segment(init_bar, init_low, bar_index, high)
+                cur_line := new_segment(bar_index, high, bar_index, low)
+                prev_pivot_bar := bar_index
+                prev_pivot_price := high
+                cur_pivot_bar := bar_index
+                cur_pivot_price := low
+                stn := "bot"
+            else
+                new_segment(init_bar, init_high, bar_index, low)
+                cur_line := new_segment(bar_index, low, bar_index, high)
+                prev_pivot_bar := bar_index
+                prev_pivot_price := low
+                cur_pivot_bar := bar_index
+                cur_pivot_price := high
+                stn := "top"
+            HI := high
+            LO := low
+            outsidebar := false
+        else
+            outsidebar := false
+else if stn == "top"
+    if only_high
+        update_endpoint(bar_index, high)
+        cur_pivot_bar := bar_index
+        cur_pivot_price := high
+        HI := high
+        LO := low
+        outsidebar := false
+    else if only_low
+        cur_line := new_segment(cur_pivot_bar, cur_pivot_price, bar_index, low)
+        prev_pivot_bar := cur_pivot_bar
+        prev_pivot_price := cur_pivot_price
+        cur_pivot_bar := bar_index
+        cur_pivot_price := low
+        stn := "bot"
+        HI := high
+        LO := low
+        outsidebar := false
+    else if both_broken
+        dist_high = math.abs(cur_pivot_price - high)
+        dist_low = math.abs(cur_pivot_price - low)
+        if dist_high <= dist_low
+            update_endpoint(bar_index, high)
+            cur_line := new_segment(bar_index, high, bar_index, low)
+            prev_pivot_bar := bar_index
+            prev_pivot_price := high
+            cur_pivot_bar := bar_index
+            cur_pivot_price := low
+            stn := "bot"
+        else
+            cur_line := new_segment(cur_pivot_bar, cur_pivot_price, bar_index, low)
+            cur_line := new_segment(bar_index, low, bar_index, high)
+            prev_pivot_bar := bar_index
+            prev_pivot_price := low
+            cur_pivot_bar := bar_index
+            cur_pivot_price := high
+            stn := "top"
+        HI := high
+        LO := low
+        outsidebar := false
+    else
+        outsidebar := true
+else if stn == "bot"
+    if only_low
+        update_endpoint(bar_index, low)
+        cur_pivot_bar := bar_index
+        cur_pivot_price := low
+        HI := high
+        LO := low
+        outsidebar := false
+    else if only_high
+        cur_line := new_segment(cur_pivot_bar, cur_pivot_price, bar_index, high)
+        prev_pivot_bar := cur_pivot_bar
+        prev_pivot_price := cur_pivot_price
+        cur_pivot_bar := bar_index
+        cur_pivot_price := high
+        stn := "top"
+        HI := high
+        LO := low
+        outsidebar := false
+    else if both_broken
+        dist_high = math.abs(cur_pivot_price - high)
+        dist_low = math.abs(cur_pivot_price - low)
+        if dist_low <= dist_high
+            update_endpoint(bar_index, low)
+            cur_line := new_segment(bar_index, low, bar_index, high)
+            prev_pivot_bar := bar_index
+            prev_pivot_price := low
+            cur_pivot_bar := bar_index
+            cur_pivot_price := high
+            stn := "top"
+        else
+            cur_line := new_segment(cur_pivot_bar, cur_pivot_price, bar_index, high)
+            cur_line := new_segment(bar_index, high, bar_index, low)
+            prev_pivot_bar := bar_index
+            prev_pivot_price := high
+            cur_pivot_bar := bar_index
+            cur_pivot_price := low
+            stn := "bot"
+        HI := high
+        LO := low
+        outsidebar := false
+    else
+        outsidebar := true
+
+
+if mode_input == "reset on outside bar" and outsidebar and not na(HI)
+    stn := ""
+    HI := high
+    LO := low
+    init_bar := bar_index
+    init_open := open
+    init_high := high
+    init_low := low
+    prev_pivot_bar := na
+    prev_pivot_price := na
+    cur_pivot_bar := na
+    cur_pivot_price := na
+    cur_line := na
+    outsidebar := false
+
+showSecondZigzag = input.bool(true, "show second zigzag")
+htfZigzagColor = input.color(#f23645, "second zigzag color")
+htfZigzagWidth = input.int(1, "second zigzag width", minval = 1, maxval = 5)
+var array<line> htfZigzagLines = array.new<line>()
+const int htfZigzagLineLimit = 250
+
+htfSegment(int x1, float y1, int x2, float y2) =>
+    line result = na
+    if showSecondZigzag
+        result := line.new(x1=x1, y1=y1, x2=x2, y2=y2, xloc=xloc.bar_time, color=htfZigzagColor, width=htfZigzagWidth)
+        htfZigzagLines.push(result)
+        if htfZigzagLines.size() > htfZigzagLineLimit
+            line.delete(htfZigzagLines.shift())
+    result
+
+htfEndpoint(line ln, int x, float y) =>
+    if showSecondZigzag and not na(ln)
+        line.set_x2(ln, x)
+        line.set_y2(ln, y)
+
+var int aggStartTime = na
+var float aggOpen = na
+var float aggHigh = na
+var float aggLow = na
+var int aggHighTime = na
+var int aggLowTime = na
+var float closedOpen = na
+var float closedHigh = na
+var float closedLow = na
+var int closedHighTime = na
+var int closedLowTime = na
+
+var string htfState = ""
+var float htfHi = na
+var float htfLo = na
+var bool htfOutsideBar = false
+var float htfSeedOpen = na
+var float htfSeedHigh = na
+var float htfSeedLow = na
+var int htfSeedHighTime = na
+var int htfSeedLowTime = na
+var int htfCurPivotTime = na
+var float htfCurPivotPrice = na
+var line htfCurLine = na
+
+htfReversal(bool newLeg, int startTime, float startPrice, int pivotTime, float pivotPrice, int otherTime, float otherPrice) =>
+    bool otherFirst = otherTime <= pivotTime
+    int arriveTime = otherFirst ? otherTime : pivotTime
+    float arrivePrice = otherFirst ? otherPrice : pivotPrice
+    line live = na
+    if newLeg
+        live := htfSegment(startTime, startPrice, arriveTime, arrivePrice)
+    else
+        htfEndpoint(htfCurLine, arriveTime, arrivePrice)
+        live := htfCurLine
+    if otherFirst
+        live := htfSegment(arriveTime, arrivePrice, pivotTime, pivotPrice)
+    live
+
+if secondZigzagOn
+    if chart.is_renko or chart.is_kagi or chart.is_linebreak or chart.is_pnf or chart.is_range
+        runtime.error("second zigzag: this chart type is not time based. Use a time based chart.")
+    if timeframe.in_seconds(secondZigzagTf) <= timeframe.in_seconds()
+        runtime.error("second zigzag: the selected timeframe must be higher than the chart timeframe.")
+
+if secondZigzagOn
+    bool isNewPeriod = timeframe.change(secondZigzagTf)
+    if isNewPeriod
+        closedOpen := aggOpen
+        closedHigh := aggHigh
+        closedLow := aggLow
+        closedHighTime := aggHighTime
+        closedLowTime := aggLowTime
+        aggStartTime := time(secondZigzagTf)
+        aggOpen := open
+        aggHigh := high
+        aggLow := low
+        aggHighTime := time
+        aggLowTime := time
+    else
+        if high > aggHigh
+            aggHigh := high
+            aggHighTime := time
+        if low < aggLow
+            aggLow := low
+            aggLowTime := time
+
+    if isNewPeriod and not na(closedHigh)
+        bool htfBreakHigh = closedHigh > htfHi
+        bool htfBreakLow = closedLow < htfLo
+        bool htfOnlyHigh = htfBreakHigh and not htfBreakLow
+        bool htfOnlyLow = htfBreakLow and not htfBreakHigh
+        bool htfBothBroken = htfBreakHigh and htfBreakLow
+        bool htfNeitherBroken = not htfBreakHigh and not htfBreakLow
+        if htfState == ""
+            if na(htfHi)
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfSeedOpen := closedOpen
+                htfSeedHigh := closedHigh
+                htfSeedLow := closedLow
+                htfSeedHighTime := closedHighTime
+                htfSeedLowTime := closedLowTime
+            else
+                if htfOnlyHigh
+                    htfCurLine := htfSegment(htfSeedLowTime, htfSeedLow, closedHighTime, closedHigh)
+                    htfCurPivotTime := closedHighTime
+                    htfCurPivotPrice := closedHigh
+                    htfState := "top"
+                    htfHi := closedHigh
+                    htfLo := closedLow
+                    htfOutsideBar := false
+                else if htfOnlyLow
+                    htfCurLine := htfSegment(htfSeedHighTime, htfSeedHigh, closedLowTime, closedLow)
+                    htfCurPivotTime := closedLowTime
+                    htfCurPivotPrice := closedLow
+                    htfState := "bot"
+                    htfHi := closedHigh
+                    htfLo := closedLow
+                    htfOutsideBar := false
+                else if htfBothBroken
+                    bool tieHighFirst = closedHighTime == closedLowTime and math.abs(htfSeedOpen - closedHigh) <= math.abs(htfSeedOpen - closedLow)
+                    if closedHighTime < closedLowTime or tieHighFirst
+                        htfCurLine := htfReversal(true, htfSeedLowTime, htfSeedLow, closedLowTime, closedLow, closedHighTime, closedHigh)
+                        htfCurPivotTime := closedLowTime
+                        htfCurPivotPrice := closedLow
+                        htfState := "bot"
+                    else
+                        htfCurLine := htfReversal(true, htfSeedHighTime, htfSeedHigh, closedHighTime, closedHigh, closedLowTime, closedLow)
+                        htfCurPivotTime := closedHighTime
+                        htfCurPivotPrice := closedHigh
+                        htfState := "top"
+                    htfHi := closedHigh
+                    htfLo := closedLow
+                    htfOutsideBar := false
+                else
+                    htfOutsideBar := false
+        else if htfState == "top"
+            if htfOnlyHigh
+                htfEndpoint(htfCurLine, closedHighTime, closedHigh)
+                htfCurPivotTime := closedHighTime
+                htfCurPivotPrice := closedHigh
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else if htfOnlyLow
+                htfCurLine := htfSegment(htfCurPivotTime, htfCurPivotPrice, closedLowTime, closedLow)
+                htfCurPivotTime := closedLowTime
+                htfCurPivotPrice := closedLow
+                htfState := "bot"
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else if htfBothBroken
+                bool tieHighFirst = closedHighTime == closedLowTime and math.abs(htfCurPivotPrice - closedHigh) <= math.abs(htfCurPivotPrice - closedLow)
+                if closedHighTime < closedLowTime or tieHighFirst
+                    htfCurLine := htfReversal(false, na, na, closedLowTime, closedLow, closedHighTime, closedHigh)
+                    htfCurPivotTime := closedLowTime
+                    htfCurPivotPrice := closedLow
+                    htfState := "bot"
+                else
+                    htfCurLine := htfReversal(true, htfCurPivotTime, htfCurPivotPrice, closedHighTime, closedHigh, closedLowTime, closedLow)
+                    htfCurPivotTime := closedHighTime
+                    htfCurPivotPrice := closedHigh
+                    htfState := "top"
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else
+                htfOutsideBar := true
+        else if htfState == "bot"
+            if htfOnlyLow
+                htfEndpoint(htfCurLine, closedLowTime, closedLow)
+                htfCurPivotTime := closedLowTime
+                htfCurPivotPrice := closedLow
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else if htfOnlyHigh
+                htfCurLine := htfSegment(htfCurPivotTime, htfCurPivotPrice, closedHighTime, closedHigh)
+                htfCurPivotTime := closedHighTime
+                htfCurPivotPrice := closedHigh
+                htfState := "top"
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else if htfBothBroken
+                bool tieLowFirst = closedHighTime == closedLowTime and math.abs(htfCurPivotPrice - closedLow) <= math.abs(htfCurPivotPrice - closedHigh)
+                if closedLowTime < closedHighTime or tieLowFirst
+                    htfCurLine := htfReversal(false, na, na, closedHighTime, closedHigh, closedLowTime, closedLow)
+                    htfCurPivotTime := closedHighTime
+                    htfCurPivotPrice := closedHigh
+                    htfState := "top"
+                else
+                    htfCurLine := htfReversal(true, htfCurPivotTime, htfCurPivotPrice, closedLowTime, closedLow, closedHighTime, closedHigh)
+                    htfCurPivotTime := closedLowTime
+                    htfCurPivotPrice := closedLow
+                    htfState := "bot"
+                htfHi := closedHigh
+                htfLo := closedLow
+                htfOutsideBar := false
+            else
+                htfOutsideBar := true
+        if secondZigzagMode == "reset on outside bar" and htfOutsideBar and not na(htfHi)
+            htfState := ""
+            htfHi := closedHigh
+            htfLo := closedLow
+            htfSeedOpen := closedOpen
+            htfSeedHigh := closedHigh
+            htfSeedLow := closedLow
+            htfSeedHighTime := closedHighTime
+            htfSeedLowTime := closedLowTime
+            htfCurPivotTime := na
+            htfCurPivotPrice := na
+            htfCurLine := na
+            htfOutsideBar := false
+
+
+
+
+
+
+
+

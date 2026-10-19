@@ -1,5 +1,122 @@
-//@version=5
-strategy("Just Developing - Week 04", overlay=true)
+//@version=6
+indicator("j13 adv" , "" , true , max_boxes_count = 500 , max_lines_count = 500)
 
-// Week 04 - placeholder
-// TODO: add risk management here
+var float hi_prc = high , var float lo_prc = low , var int hi_bar = time , var int lo_bar = time , var float bgr_op = open , var float bgr_cl = close
+var box shd_bx = na , var box bdy_bx = na
+var float hl = na , var float ll = na , var string mode = "nrm" , var string frst = ""
+
+var string last_pivot = "" , var int p_prev_t = na , var float p_prev_p = na , var int p_cur_t = na , var float p_cur_p = na
+var line carry_ln = na
+var bool trig = false
+
+var string piv_open = "" , var int leg_n = 0 , var bool same1 = false
+var string ev1_dir = "" , var int ev1_t = na , var float ev1_p = na
+var string ev2_dir = "" , var int ev2_t = na , var float ev2_p = na
+var line leg1_ln = na , var line leg2_ln = na
+
+set_seg(line ln , int x1 , float y1 , int x2 , float y2) =>
+    line rs = ln
+    if na(rs)
+        rs := line.new(x1 , y1 , x2 , y2 , xloc = xloc.bar_time)
+    else
+        rs.set_xy1(x1 , y1) , rs.set_xy2(x2 , y2)
+    rs
+
+bool isb = high < high[1] and low > low[1]
+if mode == "nrm"
+    hl := high[1] , ll := low[1]
+    if isb
+        mode := "osb"
+else
+    if high > hl or low < ll
+        mode := "nrm"
+
+[hi_lmt , lo_lmt] = request.security("" , "60" , [hl , ll] , barmerge.gaps_off , barmerge.lookahead_on )
+
+var line[] hist_ln = array.new<line>()
+
+if timeframe.change("60")
+
+    if leg_n > 0
+        if same1
+            p_cur_t := ev1_t , p_cur_p := ev1_p
+        else
+            array.push(hist_ln , carry_ln)
+            p_prev_t := p_cur_t , p_prev_p := p_cur_p , p_cur_t := ev1_t , p_cur_p := ev1_p
+            carry_ln := leg1_ln
+        last_pivot := ev1_dir == "hi" ? "top" : "bot"
+        if leg_n == 2
+            array.push(hist_ln , carry_ln)
+            p_prev_t := ev1_t , p_prev_p := ev1_p , p_cur_t := ev2_t , p_cur_p := ev2_p
+            carry_ln := leg2_ln
+            last_pivot := ev2_dir == "hi" ? "top" : "bot"
+    leg1_ln := na , leg2_ln := na , leg_n := 0
+
+    if last_pivot == "" and trig
+        if frst == "hi"
+            p_prev_t := hi_bar , p_prev_p := hi_prc , p_cur_t := lo_bar , p_cur_p := lo_prc
+            last_pivot := "bot"
+        else
+            p_prev_t := lo_bar , p_prev_p := lo_prc , p_cur_t := hi_bar , p_cur_p := hi_prc
+            last_pivot := "top"
+        carry_ln := set_seg(carry_ln , p_prev_t , p_prev_p , p_cur_t , p_cur_p)
+
+    piv_open := last_pivot
+    while array.size(hist_ln) > 500
+        array.shift(hist_ln).delete()
+    hi_prc := high , hi_bar := time , lo_prc := low , lo_bar := time , bgr_op := open , bgr_cl := close
+    frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl) , bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233
+    shd_bx := box.new(bar_index , hi_prc , bar_index , lo_prc , #787b8626 , 1 , bgcolor = #787b8633)
+    bdy_bx := box.new(bar_index , top_   , bar_index , bot_   , bdy_clr     , 1 , bgcolor = bdy_clr    )
+else
+    bgr_cl := close
+    bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233 , top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl)
+    bdy_bx.set_border_color(bdy_clr) , bdy_bx.set_bgcolor(bdy_clr) , bdy_bx.set_top(top_) , bdy_bx.set_bottom(bot_)
+    shd_bx.set_right(bar_index) , bdy_bx.set_right(bar_index)
+    if high > hi_prc
+        hi_prc := high , hi_bar := time , shd_bx.set_top   (hi_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    if low  < lo_prc
+        lo_prc := low , lo_bar := time  , shd_bx.set_bottom(lo_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+
+if not trig and (high > hi_lmt or low < lo_lmt)
+    trig := true
+
+if trig and last_pivot == ""
+    if frst == "hi"
+        carry_ln := set_seg(carry_ln , hi_bar , hi_prc , lo_bar , lo_prc)
+    else
+        carry_ln := set_seg(carry_ln , lo_bar , lo_prc , hi_bar , hi_prc)
+
+if piv_open != "" and not na(carry_ln) and not na(hi_lmt) and not na(lo_lmt)
+    if not na(leg1_ln)
+        leg1_ln.delete()
+        leg1_ln := na
+    if not na(leg2_ln)
+        leg2_ln.delete()
+        leg2_ln := na
+    carry_ln.set_xy1(p_prev_t , p_prev_p)
+    carry_ln.set_xy2(p_cur_t , p_cur_p)
+    bool brk_h = hi_prc > hi_lmt
+    bool brk_l = lo_prc < lo_lmt
+    leg_n := (brk_h ? 1 : 0) + (brk_l ? 1 : 0)
+    if leg_n > 0
+        ev1_dir := leg_n == 2 ? frst : brk_h ? "hi" : "lo"
+        ev2_dir := leg_n == 2 ? (ev1_dir == "hi" ? "lo" : "hi") : ""
+        ev1_t := ev1_dir == "hi" ? hi_bar : lo_bar
+        ev1_p := ev1_dir == "hi" ? hi_prc : lo_prc
+        same1 := (piv_open == "top" and ev1_dir == "hi") or (piv_open == "bot" and ev1_dir == "lo")
+        if same1
+            carry_ln.set_xy2(ev1_t , ev1_p)
+        else
+            leg1_ln := line.new(p_cur_t , p_cur_p , ev1_t , ev1_p , xloc = xloc.bar_time)
+        if leg_n == 2
+            ev2_t := ev2_dir == "hi" ? hi_bar : lo_bar
+            ev2_p := ev2_dir == "hi" ? hi_prc : lo_prc
+            leg2_ln := line.new(ev1_t , ev1_p , ev2_t , ev2_p , xloc = xloc.bar_time)
+
+plot(hi_prc , "" , color.yellow , 1 , plot.style_steplinebr )
+plot(lo_prc , "" , color.yellow , 1 , plot.style_steplinebr )
+
