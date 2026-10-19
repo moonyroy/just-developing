@@ -15,8 +15,8 @@ The strategy is built around two core concepts:
 
 Each week, a new iteration, experiment, or refinement is added here — with code, notes, and observations.
 
----
 
-## ⚠️ Disclaimer
 
-This project is strictly for educational and practice purposes only — not financial advice, and not intended for live trading.
+Disclaimer
+
+This project is strictly for educational and practice purposes only not financial advice, and not intended for live trading.
