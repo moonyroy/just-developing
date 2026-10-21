@@ -1,0 +1,183 @@
+//@version=6
+indicator("j14-E1 adv" , "" , true , max_boxes_count = 500 , max_lines_count = 500 , max_labels_count = 500)
+
+var float hi_prc = high , var float lo_prc = low , var int hi_bar = time , var int lo_bar = time , var float bgr_op = open , var float bgr_cl = close
+var box shd_bx = na , var box bdy_bx = na
+var float hl = na , var float ll = na , var string mode = "nrm" , var string frst = ""
+
+var lst_pvt = "" , var line inc = na , var line dec = na , var line old_ln = na
+var pst_pvt = "" , var int pvt_ctr = na , var int lst_x = na , var float lst_y = na
+var bool trig = false
+
+
+bool isb = high < high[1] and low > low[1]
+if mode == "nrm"
+    hl := high[1] , ll := low[1]
+    if isb
+        mode := "osb"
+else
+    if high > hl or low < ll
+        mode := "nrm"
+
+[hi_lmt , lo_lmt] = request.security("" , "60" , [hl , ll] , barmerge.gaps_off , barmerge.lookahead_on )
+
+if timeframe.change("60")
+
+    if lst_pvt == "" and trig
+        if frst == "hi"
+            dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2) , lst_pvt := "bot"
+        if frst == "lo"
+            inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2) , lst_pvt := "top"
+    pst_pvt := lst_pvt , pvt_ctr := 0
+
+    if lst_pvt == "top"
+        lst_x := inc.get_x2() , lst_y := inc.get_y2() , old_ln := inc
+    else if lst_pvt == "bot"
+        lst_x := dec.get_x2() , lst_y := dec.get_y2() , old_ln := dec
+    hi_prc := high , hi_bar := time , lo_prc := low , lo_bar := time , bgr_op := open , bgr_cl := close
+    frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl) , bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233
+    shd_bx := box.new(bar_index , hi_prc , bar_index , lo_prc , #787b8626 , 1 , bgcolor = #787b8633)
+    bdy_bx := box.new(bar_index , top_   , bar_index , bot_   , bdy_clr     , 1 , bgcolor = bdy_clr    )
+else
+    bgr_cl := close
+    bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233 , top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl)
+    bdy_bx.set_border_color(bdy_clr) , bdy_bx.set_bgcolor(bdy_clr) , bdy_bx.set_top(top_) , bdy_bx.set_bottom(bot_)
+    shd_bx.set_right(bar_index) , bdy_bx.set_right(bar_index)
+    if high > hi_prc
+        hi_prc := high , hi_bar := time , shd_bx.set_top   (hi_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    if low  < lo_prc
+        lo_prc := low , lo_bar := time  , shd_bx.set_bottom(lo_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+
+
+//||||||||||||||||||||||||||||||||||||||||||||||||||||||| ((   ZIGZAG   )) ||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+if not trig and (high > hi_lmt or low < lo_lmt)
+    trig := true
+
+if pvt_ctr == 0
+    if high > hi_lmt and low < lo_lmt
+        pvt_ctr := 2
+        if pst_pvt == "top"
+            if frst == "hi"
+                inc.set_xy2(hi_bar , hi_prc)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                dec := line.new(lst_x  , lst_y  , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+        else if pst_pvt == "bot"
+            if frst == "hi"
+                inc := line.new(lst_x  , lst_y  , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                dec.set_xy2(lo_bar , lo_prc)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+    else if high > hi_lmt
+        pvt_ctr := 1
+        if pst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+        else if pst_pvt == "bot"
+            inc := line.new(lst_x , lst_y , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+            lst_pvt := "top"
+    else if low < lo_lmt
+        pvt_ctr := 1
+        if pst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+        else if pst_pvt == "top"
+            dec := line.new(lst_x , lst_y , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+            lst_pvt := "bot"
+
+else if pvt_ctr == 1
+    if high > hi_lmt and low < lo_lmt
+        pvt_ctr := 2
+        if lst_pvt == "top"
+            if frst == "hi"
+                inc.set_xy2(hi_bar , hi_prc)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                if pst_pvt == "top"
+                    inc.set_xy2(lst_x , lst_y)
+                    dec := line.new(lst_x  , lst_y  , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                    inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                else if pst_pvt == "bot"
+                    dec.set_xy2(lo_bar , lo_prc)
+                    inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+                lst_pvt := "top"
+        else if lst_pvt == "bot"
+            if frst == "lo"
+                dec.set_xy2(lo_bar , lo_prc)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+            if frst == "hi"
+                if pst_pvt == "bot"
+                    dec.set_xy2(lst_x , lst_y)
+                    inc := line.new(lst_x  , lst_y  , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                    dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                else if pst_pvt == "top"
+                    inc.set_xy2(hi_bar , hi_prc)
+                    dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+                lst_pvt := "bot"
+    else if high > hi_lmt
+        if lst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+        else if lst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+            inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+            lst_pvt := "top"
+            pvt_ctr := 2
+    else if low < lo_lmt
+        if lst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+        else if lst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+            dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+            lst_pvt := "bot"
+            pvt_ctr := 2
+
+else if pvt_ctr > 1
+    if pst_pvt == "top"
+        if frst == "hi"
+            if lst_pvt == "top"
+                old_ln.set_xy2(hi_bar , hi_prc)
+                inc.delete()
+                inc := old_ln
+                lst_pvt := "bot"
+            inc.set_xy2(hi_bar , hi_prc)
+            dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+        else
+            if lst_pvt == "bot"
+                old_ln.set_xy2(lst_x , lst_y)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+            dec.set_xy1(lst_x , lst_y) , dec.set_xy2(lo_bar , lo_prc)
+            inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+    else if pst_pvt == "bot"
+        if frst == "lo"
+            if lst_pvt == "bot"
+                old_ln.set_xy2(lo_bar , lo_prc)
+                dec.delete()
+                dec := old_ln
+                lst_pvt := "top"
+            dec.set_xy2(lo_bar , lo_prc)
+            inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+        else
+            if lst_pvt == "top"
+                old_ln.set_xy2(lst_x , lst_y)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            inc.set_xy1(lst_x , lst_y) , inc.set_xy2(hi_bar , hi_prc)
+            dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+
+//plot(hi_lmt , "" , color.white , 1 , plot.style_steplinebr )
+//plot(lo_lmt , "" , color.white , 1 , plot.style_steplinebr )
+
+//plot(hi_prc , "" , color.yellow , 1 , plot.style_steplinebr )
+//plot(lo_prc , "" , color.yellow , 1 , plot.style_steplinebr )
+//||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
