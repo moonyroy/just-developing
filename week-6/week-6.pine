@@ -1,0 +1,431 @@
+//@version=6
+indicator("j14-E1 adv" , "" , true , max_boxes_count = 500 , max_lines_count = 500 , max_labels_count = 500)
+
+tm = input.timeframe("60" , "Higher timeframe")
+
+c_bull = color.green
+c_bear = color.red
+c_txt  = #2196f3       
+bg_tr  = 85            
+ms_w   = 1             
+
+var float hi_prc = high , var float lo_prc = low , var int hi_bar = time , var int lo_bar = time , var float bgr_op = open , var float bgr_cl = close
+var box shd_bx = na , var box bdy_bx = na
+var float hl = na , var float ll = na , var string mode = "nrm" , var string frst = ""
+
+var lst_pvt = "" , var line inc = na , var line dec = na , var line old_ln = na
+var pst_pvt = "" , var int pvt_ctr = na , var int lst_x = na , var float lst_y = na
+var bool trig = false
+
+
+bool isb = high < high[1] and low > low[1]
+if mode == "nrm"
+    hl := high[1] , ll := low[1]
+    if isb
+        mode := "osb"
+else
+    if high > hl or low < ll
+        mode := "nrm"
+
+[hi_lmt , lo_lmt] = request.security("" , tm , [hl , ll] , barmerge.gaps_off , barmerge.lookahead_on )
+
+bool new_c = timeframe.change(tm)
+
+if new_c
+
+    if lst_pvt == "" and trig
+        if frst == "hi"
+            dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2) , lst_pvt := "bot"
+        if frst == "lo"
+            inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2) , lst_pvt := "top"
+    pst_pvt := lst_pvt , pvt_ctr := 0
+
+    if lst_pvt == "top"
+        lst_x := inc.get_x2() , lst_y := inc.get_y2() , old_ln := inc
+    else if lst_pvt == "bot"
+        lst_x := dec.get_x2() , lst_y := dec.get_y2() , old_ln := dec
+    hi_prc := high , hi_bar := time , lo_prc := low , lo_bar := time , bgr_op := open , bgr_cl := close
+    frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl) , bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233
+    shd_bx := box.new(bar_index , hi_prc , bar_index , lo_prc , #787b8626 , 1 , bgcolor = #787b8633)
+    bdy_bx := box.new(bar_index , top_   , bar_index , bot_   , bdy_clr     , 1 , bgcolor = bdy_clr    )
+else
+    bgr_cl := close
+    bdy_clr = bgr_cl > bgr_op ? #4caf5033 : #ff525233 , top_ = math.max(bgr_op , bgr_cl) , bot_ = math.min(bgr_op , bgr_cl)
+    bdy_bx.set_border_color(bdy_clr) , bdy_bx.set_bgcolor(bdy_clr) , bdy_bx.set_top(top_) , bdy_bx.set_bottom(bot_)
+    shd_bx.set_right(bar_index) , bdy_bx.set_right(bar_index)
+    if high > hi_prc
+        hi_prc := high , hi_bar := time , shd_bx.set_top   (hi_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+    if low  < lo_prc
+        lo_prc := low , lo_bar := time  , shd_bx.set_bottom(lo_prc)
+        frst := hi_bar < lo_bar ? "hi" : lo_bar < hi_bar ? "lo" : (high-open < open-low ? "hi" : "lo")
+
+
+
+if not trig and (high > hi_lmt or low < lo_lmt)
+    trig := true
+
+if pvt_ctr == 0
+    if high > hi_lmt and low < lo_lmt
+        pvt_ctr := 2
+        if pst_pvt == "top"
+            if frst == "hi"
+                inc.set_xy2(hi_bar , hi_prc)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                dec := line.new(lst_x  , lst_y  , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+        else if pst_pvt == "bot"
+            if frst == "hi"
+                inc := line.new(lst_x  , lst_y  , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                dec.set_xy2(lo_bar , lo_prc)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+    else if high > hi_lmt
+        pvt_ctr := 1
+        if pst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+        else if pst_pvt == "bot"
+            inc := line.new(lst_x , lst_y , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+            lst_pvt := "top"
+    else if low < lo_lmt
+        pvt_ctr := 1
+        if pst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+        else if pst_pvt == "top"
+            dec := line.new(lst_x , lst_y , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+            lst_pvt := "bot"
+
+else if pvt_ctr == 1
+    if high > hi_lmt and low < lo_lmt
+        pvt_ctr := 2
+        if lst_pvt == "top"
+            if frst == "hi"
+                inc.set_xy2(hi_bar , hi_prc)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            if frst == "lo"
+                if pst_pvt == "top"
+                    inc.set_xy2(lst_x , lst_y)
+                    dec := line.new(lst_x  , lst_y  , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                    inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                else if pst_pvt == "bot"
+                    dec.set_xy2(lo_bar , lo_prc)
+                    inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+                lst_pvt := "top"
+        else if lst_pvt == "bot"
+            if frst == "lo"
+                dec.set_xy2(lo_bar , lo_prc)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+            if frst == "hi"
+                if pst_pvt == "bot"
+                    dec.set_xy2(lst_x , lst_y)
+                    inc := line.new(lst_x  , lst_y  , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                    dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                else if pst_pvt == "top"
+                    inc.set_xy2(hi_bar , hi_prc)
+                    dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+                lst_pvt := "bot"
+    else if high > hi_lmt
+        if lst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+        else if lst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+            inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+            lst_pvt := "top"
+            pvt_ctr := 2
+    else if low < lo_lmt
+        if lst_pvt == "bot"
+            dec.set_xy2(lo_bar , lo_prc)
+        else if lst_pvt == "top"
+            inc.set_xy2(hi_bar , hi_prc)
+            dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+            lst_pvt := "bot"
+            pvt_ctr := 2
+
+else if pvt_ctr > 1
+    if pst_pvt == "top"
+        if frst == "hi"
+            if lst_pvt == "top"
+                old_ln.set_xy2(hi_bar , hi_prc)
+                inc.delete()
+                inc := old_ln
+                lst_pvt := "bot"
+            inc.set_xy2(hi_bar , hi_prc)
+            dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+        else
+            if lst_pvt == "bot"
+                old_ln.set_xy2(lst_x , lst_y)
+                inc := line.new(lo_bar , lo_prc , hi_bar , hi_prc , xloc.bar_time , color = color.aqua   , width = 2)
+                lst_pvt := "top"
+            dec.set_xy1(lst_x , lst_y) , dec.set_xy2(lo_bar , lo_prc)
+            inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+    else if pst_pvt == "bot"
+        if frst == "lo"
+            if lst_pvt == "bot"
+                old_ln.set_xy2(lo_bar , lo_prc)
+                dec.delete()
+                dec := old_ln
+                lst_pvt := "top"
+            dec.set_xy2(lo_bar , lo_prc)
+            inc.set_xy1(lo_bar , lo_prc) , inc.set_xy2(hi_bar , hi_prc)
+        else
+            if lst_pvt == "top"
+                old_ln.set_xy2(lst_x , lst_y)
+                dec := line.new(hi_bar , hi_prc , lo_bar , lo_prc , xloc.bar_time , color = color.orange , width = 2)
+                lst_pvt := "bot"
+            inc.set_xy1(lst_x , lst_y) , inc.set_xy2(hi_bar , hi_prc)
+            dec.set_xy1(hi_bar , hi_prc) , dec.set_xy2(lo_bar , lo_prc)
+
+
+
+
+
+
+
+TOP      =  1
+BOTTOM   = -1
+BULL     =  1
+BEAR     = -1
+NO_TREND =  0
+
+STAGE_IDLE         = 0
+STAGE_WAIT_LEG_END = 1
+STAGE_MAJORS_KNOWN = 2
+
+bool bar_closed = barstate.isconfirmed
+
+
+
+var array<int>   piv_time  = array.new<int>()     
+var array<float> piv_price = array.new<float>()   
+var array<int>   piv_type  = array.new<int>()     
+
+var int final_count = 0      
+if new_c
+    final_count := math.max(piv_time.size() - 1 , 0)   
+
+line last_zz_line = lst_pvt == "top" ? inc : lst_pvt == "bot" ? dec : na     
+
+if not na(last_zz_line)
+    int   line_start_time  = last_zz_line.get_x1()
+    float line_start_price = last_zz_line.get_y1()
+    int   line_end_time    = last_zz_line.get_x2()
+    float line_end_price   = last_zz_line.get_y2()
+    int   line_end_type    = lst_pvt == "top" ? TOP : BOTTOM
+    int   line_start_type  = -line_end_type
+
+    line  prev_zz_line = lst_pvt == "top" ? dec : inc
+    bool  connected    = false
+    int   tail_time    = line_start_time        
+    float tail_price   = line_start_price
+    int   tail_type    = line_start_type
+    if not na(prev_zz_line)
+        connected := prev_zz_line.get_x2() == line_start_time and prev_zz_line.get_y2() == line_start_price
+        if connected
+            tail_time  := prev_zz_line.get_x1()
+            tail_price := prev_zz_line.get_y1()
+            tail_type  := line_end_type
+
+    while piv_time.size() > 0 and (piv_time.last() > tail_time or (piv_time.last() == tail_time and piv_type.last() != tail_type))
+        piv_time.pop()
+        piv_price.pop()
+        piv_type.pop()
+
+    if piv_time.size() > 0 and piv_type.last() == tail_type
+        if piv_time.last() != tail_time or piv_price.last() != tail_price
+            int last_idx = piv_time.size() - 1
+            piv_time.set(last_idx , tail_time)
+            piv_price.set(last_idx , tail_price)
+    else
+        piv_time.push(tail_time)
+        piv_price.push(tail_price)
+        piv_type.push(tail_type)
+
+    
+    if connected
+        piv_time.push(line_start_time)
+        piv_price.push(line_start_price)
+        piv_type.push(line_start_type)
+
+
+    piv_time.push(line_end_time)
+    piv_price.push(line_end_price)
+    piv_type.push(line_end_type)
+
+   
+    if piv_time.size() > 300
+        piv_time.shift()
+        piv_price.shift()
+        piv_type.shift()
+        final_count := math.max(final_count - 1 , 0)
+
+final_count := math.min(final_count , math.max(piv_time.size() - 1 , 0))
+
+int   piv_count   = piv_time.size()   
+int   dev_type    = 0                 
+float dev_price   = na                
+if piv_count > 0
+    dev_type  := piv_type.get(piv_count - 1)
+    dev_price := piv_price.get(piv_count - 1)
+
+
+
+var int trend = NO_TREND
+
+if trend == NO_TREND and final_count >= 4
+    for last_i = math.max(3 , final_count - 3) to final_count - 1
+        if trend == NO_TREND
+            float p1 = piv_price.get(last_i - 3)
+            float p2 = piv_price.get(last_i - 2)
+            float p3 = piv_price.get(last_i - 1)
+            float p4 = piv_price.get(last_i)
+            bool  has_next_final = last_i + 1 <= final_count - 1
+            if piv_type.get(last_i) == BOTTOM
+                bool top2_broken = has_next_final ? piv_price.get(last_i + 1) > p3 : (high > p3 or (dev_type == TOP and dev_price > p3))
+                if top2_broken and p1 < p3 and p2 < p4
+                    trend := BULL
+            else
+                bool bottom2_broken = has_next_final ? piv_price.get(last_i + 1) < p3 : (low < p3 or (dev_type == BOTTOM and dev_price < p3))
+                if bottom2_broken and p1 > p3 and p2 > p4
+                    trend := BEAR
+var array<int>   org_time  = array.new<int>()
+var array<float> org_price = array.new<float>()
+var array<int>   org_type  = array.new<int>()
+var array<bool>  org_used  = array.new<bool>()
+var int last_origin_low_time  = 0
+var int last_origin_high_time = 0
+
+add_origin(int piv_idx , int kind) =>
+    org_time.push(piv_time.get(piv_idx))
+    org_price.push(piv_price.get(piv_idx))
+    org_type.push(kind)
+    org_used.push(false)
+    true
+
+if final_count >= 2
+    for i = math.max(1 , final_count - 5) to final_count - 1
+        int type_i = piv_type.get(i)
+        if type_i == BOTTOM and piv_type.get(i - 1) == TOP and piv_time.get(i) > last_origin_low_time
+            float prev_top = piv_price.get(i - 1)
+            bool  prev_top_broken = i + 1 <= final_count - 1 ? piv_price.get(i + 1) > prev_top : (high > prev_top or (dev_type == TOP and dev_price > prev_top))
+            if prev_top_broken
+                last_origin_low_time := piv_time.get(i)
+                add_origin(i , BOTTOM)
+        else if type_i == TOP and piv_type.get(i - 1) == BOTTOM and piv_time.get(i) > last_origin_high_time
+            float prev_bottom = piv_price.get(i - 1)
+            bool  prev_bottom_broken = i + 1 <= final_count - 1 ? piv_price.get(i + 1) < prev_bottom : (low < prev_bottom or (dev_type == BOTTOM and dev_price < prev_bottom))
+            if prev_bottom_broken
+                last_origin_high_time := piv_time.get(i)
+                add_origin(i , TOP)
+
+if org_time.size() > 100
+    org_time.shift()
+    org_price.shift()
+    org_type.shift()
+    org_used.shift()
+
+
+
+var array<line>  ms_lines  = array.new<line>()
+var array<label> ms_labels = array.new<label>()
+
+var int   choch_stage        = STAGE_IDLE
+var int   choch_origin_time  = 0
+var float choch_origin_price = na
+var float major1_price       = na
+var int   major2_time        = 0
+var float major2_price       = na
+var int   valid_after_time   = 0
+
+draw_level_line(int x1 , float y , int x2 , color c , string txt) =>
+    ms_lines.push(line.new(x1 , y , x2 , y , xloc = xloc.bar_time , color = c , width = ms_w))
+    ms_labels.push(label.new(math.round((x1 + x2) / 2) , y , txt , xloc = xloc.bar_time , style = label.style_none , textcolor = c_txt , size = size.small))
+    if ms_lines.size() > 60
+        line  old_line  = ms_lines.shift()
+        label old_label = ms_labels.shift()
+        old_line.delete()
+        old_label.delete()
+    true
+
+if trend != NO_TREND and piv_count >= 3
+    int  leg_dir    = -trend
+    bool high_first = frst == "hi"
+
+    bool choch_hit    = false
+    int  origin_idx   = -1
+    if choch_stage == STAGE_IDLE and org_time.size() > 0
+        for i = org_time.size() - 1 to 0
+            if org_type.get(i) == leg_dir and not org_used.get(i) and org_time.get(i) > valid_after_time
+                origin_idx := i
+                break
+        if origin_idx >= 0
+            choch_hit := leg_dir == -1 ? low < org_price.get(origin_idx) : high > org_price.get(origin_idx)
+
+    if choch_hit
+        choch_origin_time  := org_time.get(origin_idx)
+        choch_origin_price := org_price.get(origin_idx)
+        if bar_closed
+            draw_level_line(choch_origin_time , choch_origin_price , time , leg_dir == -1 ? c_bear : c_bull , "choch")
+        choch_stage := STAGE_WAIT_LEG_END
+
+    if (choch_hit or choch_stage != STAGE_IDLE) and org_time.size() > 0
+        for i = 0 to org_time.size() - 1
+            if org_type.get(i) == leg_dir and not org_used.get(i) and (leg_dir == -1 ? low < org_price.get(i) : high > org_price.get(i))
+                org_used.set(i , true)
+
+    if choch_stage != STAGE_IDLE and not choch_hit
+        bool bos_hit      = false
+        bool choch_failed = false
+        int  bos_end_time = time
+
+        if choch_stage == STAGE_WAIT_LEG_END and final_count > 0
+            int leg_end_idx = -1
+            for j = final_count - 1 to 0
+                if piv_time.get(j) <= choch_origin_time
+                    break
+                if piv_type.get(j) == leg_dir and (leg_dir == -1 ? piv_price.get(j) < choch_origin_price : piv_price.get(j) > choch_origin_price)
+                    leg_end_idx := j
+            if leg_end_idx >= 1
+                major1_price := piv_price.get(leg_end_idx - 1)
+                major2_time  := piv_time.get(leg_end_idx)
+                major2_price := piv_price.get(leg_end_idx)
+                choch_stage  := STAGE_MAJORS_KNOWN
+                if leg_end_idx + 1 <= final_count - 1
+                    for n = leg_end_idx + 1 to final_count - 1
+                        if not bos_hit and not choch_failed
+                            if piv_type.get(n) == -leg_dir and (leg_dir == -1 ? piv_price.get(n) > major1_price : piv_price.get(n) < major1_price)
+                                choch_failed := true
+                            else if piv_type.get(n) == leg_dir and (leg_dir == -1 ? piv_price.get(n) < major2_price : piv_price.get(n) > major2_price)
+                                bos_hit      := true
+                                bos_end_time := piv_time.get(n)
+
+        if choch_stage == STAGE_MAJORS_KNOWN and not bos_hit and not choch_failed
+            bos_hit      := leg_dir == -1 ? low < major2_price : high > major2_price
+            choch_failed := leg_dir == -1 ? high > major1_price : low < major1_price
+            if bos_hit and choch_failed
+                if leg_dir == -1
+                    bos_hit      := not high_first
+                    choch_failed := high_first
+                else
+                    bos_hit      := high_first
+                    choch_failed := not high_first
+
+        if bos_hit
+            if bar_closed
+                draw_level_line(major2_time , major2_price , bos_end_time , leg_dir == -1 ? c_bear : c_bull , "bos")
+            trend            := leg_dir
+            valid_after_time := major2_time
+            choch_stage      := STAGE_IDLE
+        else if choch_failed
+            choch_stage := STAGE_IDLE
+
+
+bgcolor(trend == BULL ? color.new(c_bull , bg_tr) : trend == BEAR ? color.new(c_bear , bg_tr) : na)
