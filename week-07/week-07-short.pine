@@ -200,11 +200,9 @@ var array<int>   piv_time  = array.new<int>()
 var array<float> piv_price = array.new<float>()
 var array<int>   piv_type  = array.new<int>()
 var int final_count = 0
-var int hour_start_count = 0      // pivots that existed when the current hourly candle started
 
 if new_c
     final_count := math.max(piv_time.size() - 1 , 0)
-    hour_start_count := piv_time.size()
 
 line last_zz_line = lst_pvt == "top" ? inc : lst_pvt == "bot" ? dec : na
 
@@ -257,10 +255,8 @@ if not na(last_zz_line)
         piv_price.shift()
         piv_type.shift()
         final_count := math.max(final_count - 1 , 0)
-        hour_start_count := math.max(hour_start_count - 1 , 0)
 
 final_count := math.min(final_count , math.max(piv_time.size() - 1 , 0))
-hour_start_count := math.min(hour_start_count , piv_time.size())
 
 int   piv_count = piv_time.size()
 int   dev_type  = 0
@@ -338,6 +334,9 @@ var bool  leg_start_open     = false
 var float major1_price       = na
 var int   major2_time        = 0
 var float major2_price       = na
+var float leg_ext_price      = na
+var int   leg_ext_time       = 0
+var bool  leg_pull_ready     = false
 var int   valid_after_time   = 0
 var int   bos_line_end_time  = 0
 
@@ -373,6 +372,9 @@ if trend != NO_TREND and piv_count >= 3
         leg_start_price    := start_price
         leg_start_open     := start_open
         choch_stage        := STAGE_WAIT_LEG_END
+        leg_ext_price      := leg_dir == -1 ? low : high
+        leg_ext_time       := time
+        leg_pull_ready     := false
         if bar_closed
             draw_level_line(choch_origin_time , choch_origin_price , time , leg_dir == -1 ? c_bear : c_bull , "choch")
 
@@ -393,35 +395,44 @@ if trend != NO_TREND and piv_count >= 3
                 leg_start_price := start_price
                 leg_start_open  := start_open
 
-        // major 2 candidates: every pivot that existed when this hour started and already has a later pivot (the pullback).
-        // Such a pivot can only be extended by a real break of its own price, which the bar check below catches, so the BOS
-        // is seen on the bar that breaks it instead of one hour later.
-        int leg_scan_top = math.min(math.max(final_count , hour_start_count) - 1 , piv_count - 2)
-        if choch_stage == STAGE_WAIT_LEG_END and not choch_failed and leg_scan_top >= 0
-            int leg_end_idx = -1
-            for j = leg_scan_top to 0
-                if piv_time.get(j) <= choch_origin_time
-                    break
-                if piv_type.get(j) == leg_dir and (leg_dir == -1 ? piv_price.get(j) < choch_origin_price : piv_price.get(j) > choch_origin_price)
-                    leg_end_idx := j
-            if leg_end_idx >= 1
-                major1_price := piv_price.get(leg_end_idx - 1)
-                // the pivot that was last when this hour started can still be moved inside the hour: take its value from the
-                // snapshot (lst_x , lst_y) so major 2 is the real leg end, not a pivot that is only temporarily extended
-                bool use_snap = leg_end_idx == hour_start_count - 1 and not na(lst_x) and not na(lst_y)
-                major2_time  := use_snap ? lst_x : piv_time.get(leg_end_idx)
-                major2_price := use_snap ? lst_y : piv_price.get(leg_end_idx)
-                choch_stage  := STAGE_MAJORS_KNOWN
-                // scan every pivot after major 2, including the ones still forming (they are real extremes, a break that already happened cannot be undone)
-                // bos_end_time is the time of the pivot that broke, not the current bar
-                if leg_end_idx + 1 <= piv_count - 1
-                    for n = leg_end_idx + 1 to piv_count - 1
-                        if not bos_hit and not choch_failed
-                            if piv_type.get(n) == -leg_dir and (leg_dir == -1 ? piv_price.get(n) > major1_price : piv_price.get(n) < major1_price)
-                                choch_failed := true
-                            else if piv_type.get(n) == leg_dir and (leg_dir == -1 ? piv_price.get(n) < major2_price : piv_price.get(n) > major2_price)
-                                bos_hit      := true
-                                bos_end_time := piv_time.get(n)
+        // major 2 = the extreme of the CHoCH leg (lowest low for a down leg, highest high for an up leg), tracked bar by bar
+        // from the CHoCH bar. The leg is over when a pullback pivot (opposite type) was already printed after that extreme
+        // at the end of the PREVIOUS bar (leg_pull_ready). A pivot printed on the same bar as a new extreme is not a pullback,
+        // it only belongs to the same candle. The latch uses the extreme of the previous bars, so the bar that follows a
+        // pullback and breaks the extreme is a BOS.
+        if choch_stage == STAGE_WAIT_LEG_END and not choch_failed
+            int maj1_idx = -1
+            if leg_pull_ready
+                for j = piv_count - 1 to 0
+                    if piv_time.get(j) < leg_ext_time and piv_type.get(j) == -leg_dir
+                        maj1_idx := j
+                        break
+            if leg_pull_ready and maj1_idx >= 0
+                major1_price   := piv_price.get(maj1_idx)
+                major2_time    := leg_ext_time
+                major2_price   := leg_ext_price
+                leg_pull_ready := false
+                choch_stage    := STAGE_MAJORS_KNOWN
+                // pivots after major 2 (also the ones still forming) may already have broken it or major 1;
+                // bos_end_time is then the time of that pivot, not the current bar
+                for n = 0 to piv_count - 1
+                    if piv_time.get(n) > major2_time and not bos_hit and not choch_failed
+                        if piv_type.get(n) == -leg_dir and (leg_dir == -1 ? piv_price.get(n) > major1_price : piv_price.get(n) < major1_price)
+                            choch_failed := true
+                        else if piv_type.get(n) == leg_dir and (leg_dir == -1 ? piv_price.get(n) < major2_price : piv_price.get(n) > major2_price)
+                            bos_hit      := true
+                            bos_end_time := piv_time.get(n)
+            else
+                if (leg_dir == -1 ? low < leg_ext_price : high > leg_ext_price)
+                    leg_ext_price := leg_dir == -1 ? low : high
+                    leg_ext_time  := time
+                leg_pull_ready := false
+                for j = piv_count - 1 to 0
+                    if piv_time.get(j) <= leg_ext_time
+                        break
+                    if piv_type.get(j) == -leg_dir
+                        leg_pull_ready := true
+                        break
 
         if choch_stage == STAGE_MAJORS_KNOWN and not bos_hit and not choch_failed
             bos_hit      := leg_dir == -1 ? low < major2_price : high > major2_price
