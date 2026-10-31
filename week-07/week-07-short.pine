@@ -200,9 +200,11 @@ var array<int>   piv_time  = array.new<int>()
 var array<float> piv_price = array.new<float>()
 var array<int>   piv_type  = array.new<int>()
 var int final_count = 0
+var int hour_start_count = 0      // pivots that existed when the current higher-timeframe candle started
 
 if new_c
     final_count := math.max(piv_time.size() - 1 , 0)
+    hour_start_count := piv_time.size()
 
 line last_zz_line = lst_pvt == "top" ? inc : lst_pvt == "bot" ? dec : na
 
@@ -255,8 +257,10 @@ if not na(last_zz_line)
         piv_price.shift()
         piv_type.shift()
         final_count := math.max(final_count - 1 , 0)
+        hour_start_count := math.max(hour_start_count - 1 , 0)
 
 final_count := math.min(final_count , math.max(piv_time.size() - 1 , 0))
+hour_start_count := math.min(hour_start_count , piv_time.size())
 
 int   piv_count = piv_time.size()
 int   dev_type  = 0
@@ -465,7 +469,7 @@ OB_INVALID = 2
 
 ob_alpha      = 80      // band transparency
 ob_max        = 100     // order blocks kept in memory
-ob_wait_final = true    // true : build the order blocks once every top of the BOS range is final (no repaint, usually within an hour)
+ob_wait_final = true    // true : build the order blocks once every top of the BOS range is final (no repaint, usually on the BOS bar)
                         // false: build them on the BOS bar (tops that are still forming are missed)
 risk_percent  = 1.0     // % of equity risked per position
 
@@ -526,11 +530,15 @@ end_order_block(int idx , int new_state) =>
     band.set_right(time)
     true
 
+// pivots the order blocks may use: those that existed when the current higher-timeframe candle started and already have a
+// later pivot (a pivot that is still the last one, or was created in this candle, can still move or be rebuilt)
+int ob_scan_top = math.min(math.max(final_count , hour_start_count) - 1 , piv_count - 2)
+
 // tops inside the BOS range that no later top (inside the range) has beaten; major 1 is outside the range
-build_order_blocks(int range_start , int range_end) =>
+build_order_blocks(int range_start , int range_end , int scan_top) =>
     float highest_later_top = na
-    if final_count > 0
-        for i = final_count - 1 to 0
+    if scan_top >= 0
+        for i = scan_top to 0
             if piv_time.get(i) <= range_start
                 break
             if piv_type.get(i) == TOP and piv_time.get(i) < range_end
@@ -556,20 +564,25 @@ if bear_bos
     if ob_wait_final
         ob_pending := true
     else
-        build_order_blocks(ob_range_start , ob_range_end)
+        build_order_blocks(ob_range_start , ob_range_end , ob_scan_top)
 
-// wait until every pivot before the end of the range is final, then build (the build can still be a few bars after the BOS)
+// wait until every top before the end of the range is final, then build
 if ob_pending
     if trend != BEAR
         ob_pending := false
     else
-        int pivots_before_end = 0
-        for i = 0 to piv_count - 1
-            if piv_time.get(i) >= ob_range_end
-                break
-            pivots_before_end := pivots_before_end + 1
-        if final_count >= pivots_before_end
-            build_order_blocks(ob_range_start , ob_range_end)
+        // only the top pivots before the end of the range have to be final (they decide the set); a forming bottom
+        // pivot cannot add or remove an order block, so the build usually happens on the BOS bar itself
+        bool tops_final = true
+        if piv_count - 1 >= ob_scan_top + 1
+            for i = ob_scan_top + 1 to piv_count - 1
+                if piv_time.get(i) >= ob_range_end
+                    break
+                if piv_type.get(i) == TOP
+                    tops_final := false
+                    break
+        if tops_final
+            build_order_blocks(ob_range_start , ob_range_end , ob_scan_top)
             ob_pending := false
 
 // the bands belong to the bearish trend: when it ends they stop growing
